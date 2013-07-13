@@ -1,0 +1,5 @@
+name = Custom Crowdsourcing Map
+description = This Module creates a custom field that shows a map with moving marker
+core = 7.x
+
+package = Custom

@@ -1,0 +1,23 @@
+; $Id$
+
+name = Grassland
+description = An ecological theme.
+version = VERSION
+core = 7.x
+engine = phptemplate
+
+stylesheets[all][] = css/style.css
+
+regions[sidebar_first] = Right sidebar
+regions[sidebar_last] = Left sidebar
+regions[header] = header
+regions[content] = content
+regions[footer] = Footer
+regions[content_top] = Content Top
+regions[content_bottom] = Content Bottom
+; Information added by drupal.org packaging script on 2011-05-23
+version = "7.x-1.0-alpha1"
+core = "7.x"
+project = "grassland"
+datestamp = "1306111615"
+

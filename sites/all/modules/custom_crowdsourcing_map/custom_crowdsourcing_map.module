@@ -1,0 +1,276 @@
+<?php
+
+/**
+ * Implements hook_init().
+ */
+function custom_crowdsourcing_map_init() {
+  drupal_add_css(drupal_get_path("module", "custom_crowdsourcing_map") . '/css/jquery.combobox/jquery.combobox.css');
+  drupal_add_js(drupal_get_path("module", "custom_crowdsourcing_map") . '/js/jquery.combobox.js');
+  drupal_add_js(drupal_get_path("module", "custom_crowdsourcing_map") . '/js/custom_city_select.js');
+}
+
+/**
+ * Implements hook_permission().
+ */
+function custom_crowdsourcing_map_permission() {
+  return array(
+      'administer crowdsourcing_map' => array(
+          'title' => 'Administer Crowdsourcing Map',
+          'description' => 'Allow users to Administer Crowdsourcing Map',
+      ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function custom_crowdsourcing_map_menu() {
+  $items['admin/config/content/crowdsourcing_map'] = array(
+      'title' => 'Crowdsourcing Map',
+      'description' => 'Administer Crowdsourcing Map',
+      'page callback' => 'system_admin_menu_block_page',
+      'access arguments' => array('access administration pages'),
+      'file path' => drupal_get_path('module', 'system'),
+      'file' => 'system.admin.inc',
+      'weight' => -15,
+  );
+
+  $items['admin/config/content/crowdsourcing_map/configure'] = array(
+      'title' => 'Configure Crowdsourcing Map',
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('custom_crowdsourcing_map_settings_form'),
+      'access arguments' => array('administer crowdsourcing_map'),
+      'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+function custom_crowdsourcing_map_rules_event_info() {
+  $user = array(
+      'type' => 'user',
+      'label' => t('User'),
+  );
+
+  $items = array(
+      'crowdsourcing_map_plane_arrives' => array(
+          'label' => t('Plane about to arrive'),
+          'group' => t('Crowdsourcing Map'),
+          'variables' => array(
+              'account' => $user,
+          ),
+      ),
+  );
+
+  return $items;
+}
+
+function custom_crowdsourcing_map_settings_form($form, &$form_state) {
+
+  $form['custom_crowdsourcing_map_gmaps_api_key'] = array(
+      '#type' => 'textfield',
+      '#title' => check_plain('Google Maps API key'),
+      '#description' => '',
+      '#default_value' => variable_get('custom_crowdsourcing_map_gmaps_api_key', ''),
+      '#required' => TRUE,
+  );
+
+  $types = array();
+
+  foreach (node_type_get_types() as $type => $name) {
+    $types[$type] = $name->name;
+  }
+
+  $form['custom_crowdsourcing_map_node_types'] = array(
+      '#type' => 'checkboxes',
+      '#title' => 'Content Types to Add the Map to',
+      '#description' => 'The content type must have all the required fields',
+      '#default_value' => variable_get('custom_crowdsourcing_map_node_types', array()),
+      '#options' => $types,
+  );
+
+  $form = system_settings_form($form);
+
+  return $form;
+}
+
+function custom_crowdsourcing_map_preprocess_node(&$variables) {
+
+  $types = variable_get('custom_crowdsourcing_map_node_types', array());
+
+  if ($types[$variables["type"]]) {
+
+    $node = $variables["node"];
+
+    $departure_latitude = $node->field_departure_from['und'][0]['latitude'];
+    $departure_logitude = $node->field_departure_from['und'][0]['longitude'];
+
+    $arrival_latitude = $node->field_destination['und'][0]['latitude'];
+    $arrival_logitude = $node->field_destination['und'][0]['longitude'];
+
+    if (isset($node->field_departure_from['und'][0]['lid'])) {
+      $lat = floatval($departure_latitude);
+      $lon = floatval($departure_logitude);
+      if (!$lat && !$lon) {
+        $lat_lon = custom_crowdsourcing_map_update_lat_lon($node->field_departure_from['und'][0]['lid']);
+        $node->field_departure_from['und'][0]['latitude'] = $lat_lon["lat"];
+        $node->field_departure_from['und'][0]['longitude'] = $lat_lon["lon"];
+        node_save($node);
+      }
+    }
+
+    if (isset($node->field_destination['und'][0]['lid'])) {
+      $lat = floatval($arrival_latitude);
+      $lon = floatval($arrival_logitude);
+
+      if (!$lat && !$lon) {
+        $lat_lon = custom_crowdsourcing_map_update_lat_lon($node->field_destination['und'][0]['lid']);
+        $node->field_destination['und'][0]['latitude'] = $lat_lon["lat"];
+        $node->field_destination['und'][0]['longitude'] = $lat_lon["lon"];
+        node_save($node);
+      }
+    }
+
+    $api_key = variable_get('custom_crowdsourcing_map_gmaps_api_key', '');
+
+    drupal_add_css(drupal_get_path("module", "custom_crowdsourcing_map") . '/custom_crowdsourcing_map.css');
+
+    $offset = 0;
+
+    $departure_time = $node->field_departs_on["und"][0]["value"];
+    $arrival_time = $node->field_arrives_on["und"][0]["value"];
+
+    $elapsed_time = time() - $departure_time;
+    $total_time = $arrival_time - $departure_time;
+
+    $remaining_time = $total_time - $elapsed_time;
+
+    $remaining_distance = $total_time ? (100 - (($elapsed_time * 100) / $total_time)) : 0;
+
+    if (time() < $node->field_departs_on["und"][0]["value"]) {
+      $offset = 0;
+    }
+    elseif (time() >= $node->field_arrives_on["und"][0]["value"]) {
+      $offset = 100;
+    }
+    else {
+      $offset = $total_time ? (($elapsed_time * 100) / $total_time) : 0;
+    }
+
+    drupal_add_js(array('custom_crowdsourcing_map' => array(
+            'lat1' => $departure_latitude,
+            "lon1" => $departure_logitude,
+            'lat2' => $arrival_latitude,
+            "lon2" => $arrival_logitude,
+            "base_path" => base_path() . drupal_get_path("module", "custom_crowdsourcing_map") . "/images/",
+            "timeout" => $remaining_time / $remaining_distance,
+            "offset" => $offset
+        )), 'setting');
+
+    drupal_add_js('https://maps.googleapis.com/maps/api/js?key=' . $api_key . '&sensor=false', 'external');
+    drupal_add_js(drupal_get_path("module", "custom_crowdsourcing_map") . '/custom_crowdsourcing_map.js');
+
+    $variables["content"]["custom_crowdsourcing_map"] = array(
+        "#markup" => '<div id="map-canvas" class="map-canvas"></div>'
+    );
+  }
+}
+
+function custom_crowdsourcing_map_update_lat_lon($lid) {
+
+  $location = location_load_location($lid);
+
+  $str_loc = str_replace(' ', '+', $location['city']) . '+' . $location['country_name'];
+
+  $response = drupal_http_request("http://maps.googleapis.com/maps/api/geocode/json?address=$str_loc&sensor=true");
+
+  $data = json_decode($response->data);
+
+  $lat = '0';
+  $lon = '0';
+
+  if (isset($data->status) && $data->status == 'OK') {
+
+    if (isset($data->results[0]->geometry->location->lat)) {
+      $lat = $data->results[0]->geometry->location->lat;
+      $lon = $data->results[0]->geometry->location->lng;
+    }
+  }
+
+  $location['latitude'] = $lat;
+  $location['longitude'] = $lon;
+
+  $lid = location_save($location, FALSE);
+
+  return array("lat" => $lat, "lon" => $lon);
+}
+
+function custom_crowdsourcing_map_cron_queue_info() {
+  $queues['crowdsourcing_map_notify'] = array(
+      'worker callback' => 'custom_crowdsourcing_map_notify_users',
+  );
+  return $queues;
+}
+
+function custom_crowdsourcing_map_add_users($node) {
+  $nid = $node->nid;
+  $destination = db_query("SELECT field_destination_lid FROM {field_data_field_destination} WHERE entity_id=$nid")->fetchAssoc();
+  $location = location_load_location($destination["field_destination_lid"]);
+  $city = $location['city'];
+
+  $addresses = db_query("SELECT lid FROM {location} WHERE city='$city'");
+
+  foreach ($addresses as $address) {
+    $lid = $address->lid;
+    $profile = db_query("SELECT entity_id FROM {field_data_field_address} WHERE field_address_lid='$lid'")->fetchAssoc();
+    $profile_id = $profile["entity_id"];
+    $user = db_query("SELECT uid FROM {profile} WHERE pid='$profile_id'")->fetchAssoc();
+
+    $data = array(
+        "uid" => $user["uid"],
+        "nid" => $nid
+    );
+
+    $queue = DrupalQueue::get('crowdsourcing_map_notify');
+    $queue->createItem($data);
+  }
+}
+
+function custom_crowdsourcing_map_notify_users($data) {
+
+  if (isset($data["nid"]) && isset($data["uid"])) {
+
+    $node = node_load($data["nid"]);
+
+    $user = user_load($data["uid"]);
+
+    $profile = profile2_load_by_user($user);
+
+    $number = isset($profile["main"]->field_mobile['und'][0]['value']) ? $profile["main"]->field_mobile['und'][0]['value'] : "";
+
+    $sms_message = isset($node->field_sms_message['und'][0]['value']) ? $node->field_sms_message['und'][0]['value'] : "";
+
+    if (!empty($number)) {
+      $number = str_replace("(", "", $number);
+      $number = str_replace(")", "", $number);
+      $number = str_replace(" ", "", $number);
+
+      sms_send($number, $sms_message);
+    }
+
+    $email_subject = isset($node->field_email_subject['und'][0]['value']) ? $node->field_email_subject['und'][0]['value'] : "";
+    $email_body = isset($node->field_email_message['und'][0]['value']) ? $node->field_email_message['und'][0]['value'] : "";
+    $to = $user->mail;
+
+    $message = drupal_mail('custom_crowdsourcing_map', 'notify_user', $to, user_preferred_language($user), array('body' => $email_body, 'subject' => $email_subject));
+  }
+}
+
+function custom_crowdsourcing_map_mail($key, &$message, $params) {
+  if (isset($params['subject'])) {
+    $message['subject'] = $params['subject'];
+  }
+  if (isset($params['body'])) {
+    $message['body'][] = $params['body'];
+  }
+}
