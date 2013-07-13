@@ -15,7 +15,7 @@ NOTE:
 The admin information :
 username: admin
 password: password
-http://yourhost/admin/
+http://yourhost/admin/   
 
 REQUIREMENTS AND NOTES
 ----------------------
@@ -434,5 +434,4 @@ and the time(s).
 after adding the data the system will preper task to push SMS - Emails for people who 
 they are in the targeted city ,then you should cron from , 
 http://youhost/admin/config/system/cron then the system will push the messages.
-
 
