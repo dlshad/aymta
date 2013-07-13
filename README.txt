@@ -1,3 +1,6 @@
+# @dlshadothman
+# dlshad@dlshad.net
+#------------------------
 
 CONTENTS OF THIS FILE
 ---------------------
